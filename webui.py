@@ -335,6 +335,9 @@ def update_loras_table(loras):
         return gr.List(value=None, visible=False)
 
 
+import re
+
+
 async def load_model(
     model_name,
     max_seq_len,
@@ -360,6 +363,20 @@ async def load_model(
     model_load_state = True
     if not model_name:
         raise gr.Error("Specify a model to load!")
+
+    # Ensure max_seq_len is a multiple of 256
+    if max_seq_len:
+        max_seq_len = ((max_seq_len + 255) // 256) * 256
+    else:
+        max_seq_len = 2048  # Default value if not specified
+
+    # Ensure cache_size is at least twice max_seq_len and a multiple of 256
+    if cache_size:
+        cache_size = max(cache_size, 2 * max_seq_len)
+        cache_size = ((cache_size + 255) // 256) * 256
+    else:
+        cache_size = 2 * max_seq_len
+
     gpu_split_parsed = []
     try:
         if gpu_split:
@@ -370,7 +387,8 @@ async def load_model(
     try:
         if autosplit_reserve:
             autosplit_reserve_parsed = [
-                float(i) for i in list(autosplit_reserve.split(","))
+                # float(i) for i in list(autosplit_reserve.split(","))
+                float(autosplit_reserve)
             ]
     except ValueError:
         raise gr.Error("Check your autosplit reserve values and ensure they are valid!")
@@ -383,29 +401,34 @@ async def load_model(
         }
     else:
         draft_request = None
-    request = {
-        "name": model_name,
-        "max_seq_len": max_seq_len,
-        "override_base_seq_len": override_base_seq_len,
-        "cache_size": cache_size,
-        "gpu_split_auto": gpu_split_auto,
-        "gpu_split": gpu_split_parsed,
-        "rope_scale": model_rope_scale,
-        "rope_alpha": model_rope_alpha,
-        "cache_mode": cache_mode,
-        "prompt_template": prompt_template,
-        "num_experts_per_token": num_experts_per_token,
-        "fasttensors": fasttensors,
-        "autosplit_reserve": autosplit_reserve_parsed,
-        "chunk_size": chunk_size,
-        "draft": draft_request,
-    }
-    try:
-        requests.post(
-            url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
-        )
+
+    async def attempt_load(seq_len, c_size):
+        nonlocal max_seq_len, cache_size
+        request = {
+            k: v
+            for k, v in {
+                "name": model_name,
+                "max_seq_len": seq_len,
+                "override_base_seq_len": override_base_seq_len,
+                "cache_size": c_size,
+                "gpu_split_auto": gpu_split_auto,
+                "gpu_split": gpu_split_parsed if gpu_split_parsed else None,
+                "rope_scale": model_rope_scale,
+                "rope_alpha": model_rope_alpha,
+                "cache_mode": cache_mode,
+                "prompt_template": prompt_template,
+                "num_experts_per_token": num_experts_per_token,
+                "fasttensors": fasttensors,
+                "autosplit_reserve": (
+                    autosplit_reserve_parsed if autosplit_reserve_parsed else None
+                ),
+                "chunk_size": chunk_size,
+                "draft": draft_request,
+            }.items()
+            if v is not None
+        }
+
         async with aiohttp.ClientSession() as session:
-            gr.Info(f"Loading {model_name}.")
             model_load_task = asyncio.create_task(
                 session.post(
                     url=conn_url + "/v1/model/load",
@@ -417,27 +440,60 @@ async def load_model(
             r.raise_for_status()
             async for chunk in r.content:
                 if not model_load_state:
-                    requests.post(
-                        url=conn_url + "/v1/model/unload",
-                        headers={"X-admin-key": conn_key},
-                    )
-                    gr.Info("Model load canceled.")
-                    break
+                    raise asyncio.CancelledError("Model load canceled.")
                 chunk_str = chunk.decode("utf-8")
                 if chunk_str.startswith("data: "):
                     data = json.loads(chunk_str.lstrip("data: "))
                     if data.get("status") == "finished":
-                        gr.Info("Model successfully loaded.")
+                        return True
+                    elif data.get("status") == "error":
+                        error_msg = data.get("message", "")
+                        if "Model has max_batch_size * max_input_len" in error_msg:
+                            match = re.search(
+                                r"generator requires max_batch_size \* max_q_size = (\d+) \* (\d+) tokens",
+                                error_msg,
+                            )
+                            if match:
+                                required_tokens = int(match.group(1)) * int(
+                                    match.group(2)
+                                )
+                                new_seq_len = ((required_tokens + 255) // 256) * 256
+                                if new_seq_len > seq_len:
+                                    max_seq_len = new_seq_len
+                                    cache_size = max(cache_size, 2 * max_seq_len)
+                                    gr.Info(
+                                        f"Retrying with increased max_seq_len: {max_seq_len}"
+                                    )
+                                    return False
+                        raise gr.Error(f"Error loading model: {error_msg}")
+            return True
+
+    try:
+        requests.post(
+            url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
+        )
+        gr.Info(f"Loading {model_name}.")
+
+        success = False
+        retry_count = 0
+        while not success and retry_count < 3:
+            success = await attempt_load(max_seq_len, cache_size)
+            retry_count += 1
+
+        if success:
+            gr.Info("Model successfully loaded.")
             return get_current_model(), get_current_loras()
+        else:
+            raise gr.Error("Failed to load the model after multiple attempts.")
+
     except asyncio.CancelledError:
         requests.post(
             url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
         )
         gr.Info("Model load canceled.")
     except Exception as e:
-        raise gr.Error(e)
+        raise gr.Error(str(e))
     finally:
-        await session.close()
         model_load_task = None
         model_load_state = False
 
