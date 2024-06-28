@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 export ENDPOINT_URL
-export AUTH=${AUTH:-}
+export AUTH
 
 cd /app || exit
 
