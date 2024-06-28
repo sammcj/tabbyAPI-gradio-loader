@@ -5,9 +5,13 @@ export AUTH
 
 cd /app || exit
 
-echo "Starting TabbyLoader WebUI with endpoint URL: ${ENDPOINT_URL} and auth: ${AUTH}"
+echo "Starting TabbyLoader WebUI with endpoint URL: ${ENDPOINT_URL}"
 
 # trap SIGTERM and SIGINT to kill the python process in the container
 trap 'kill -TERM $PID' TERM INT
 
-python3 /app/webui.py --listen --endpoint_url "${ENDPOINT_URL}" "${AUTH}"
+if [[ -n "${AUTH}" ]]; then
+  python3 /app/webui.py --listen --endpoint_url "${ENDPOINT_URL}" "${AUTH}"
+else
+  python3 /app/webui.py --listen --endpoint_url "${ENDPOINT_URL}"
+fi
