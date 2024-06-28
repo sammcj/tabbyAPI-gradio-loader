@@ -638,29 +638,29 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
     current_model = gr.Textbox(value=init_model_text, label="Current Model:")
     current_loras = gr.Textbox(value=init_lora_text, label="Current Loras:")
 
-    with gr.Accordion("Connection Details", open=False):
-        api_url = gr.Textbox(
-            value=args.endpoint_url,
-            label="TabbyAPI Endpoint URL:",
-            interactive=not bool(conn_key),
-        )
-        # admin_key = gr.Textbox(
-        #     value=args.admin_key,
-        #     label="Admin Key:",
-        #     type="password",
-        #     interactive=not bool(conn_key),
-        # )
-        model_list = gr.Dropdown(
-            choices=[""] + models, label="Available Models:", interactive=True
-        )
-        draft_model_list = gr.Dropdown(
-            choices=[""] + draft_models,
-            label="Available Draft Models:",
-            interactive=True,
-        )
-        lora_list = gr.Textbox(
-            value=", ".join(loras), label="Available Loras:", visible=bool(conn_key)
-        )
+    # with gr.Accordion("Connection Details", open=False):
+    #     api_url = gr.Textbox(
+    #         value=args.endpoint_url,
+    #         label="TabbyAPI Endpoint URL:",
+    #         interactive=not bool(conn_key),
+    #     )
+    # admin_key = gr.Textbox(
+    #     value=args.admin_key,
+    #     label="Admin Key:",
+    #     type="password",
+    #     interactive=not bool(conn_key),
+    # )
+    # model_list = gr.Dropdown(
+    #     choices=[""] + models, label="Available Models:", interactive=True
+    # )
+    # draft_model_list = gr.Dropdown(
+    #     choices=[""] + draft_models,
+    #     label="Available Draft Models:",
+    #     interactive=True,
+    # )
+    # lora_list = gr.Textbox(
+    #     value=", ".join(loras), label="Available Loras:", visible=bool(conn_key)
+    # )
 
     with gr.Tabs():
         with gr.Tab("Load Model"):
