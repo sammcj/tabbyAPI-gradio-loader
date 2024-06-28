@@ -851,7 +851,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                     with gr.Row(variant="compact", equal_height=True):
                         cache_size = gr.Slider(
                             label="Cache Size:",
-                            value=lambda: max_seq_len.value,
+                            value=lambda: None,
                             maximum=262144,
                             step=256,
                             interactive=True,
@@ -861,6 +861,8 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                             value=lambda: None,
                             label="Chunk Size:",
                             interactive=True,
+                            maximum=32768,
+                            minimum=256,
                             info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
                         )
                     with gr.Row(variant="compact", equal_height=True):
