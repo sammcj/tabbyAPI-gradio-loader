@@ -862,7 +862,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                             label="Chunk Size:",
                             interactive=True,
                             maximum=32768,
-                            minimum=256,
+                            minimum=1,
                             info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
                         )
                     with gr.Row(variant="compact", equal_height=True):
