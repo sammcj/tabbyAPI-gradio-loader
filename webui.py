@@ -624,328 +624,300 @@ if args.admin_key or args.noauth:
         print(f"Automatic connection failed: {str(e)}")
         print("Continuing to WebUI.")
 
-print(f"Models after connection: {models}")
-print(f"Draft models after connection: {draft_models}")
-print(f"Loras after connection: {loras}")
 
 # Setup UI elements
-with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
+with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui:
     gr.Markdown(
         f"## TabbyAPI Exllamav2 Server - Connected to {conn_url}"
         if conn_key
         else "## TabbyAPI Exllamav2 Server - Not connected"
     )
-    current_model = gr.Textbox(value=init_model_text, label="Current Model:")
-    current_loras = gr.Textbox(value=init_lora_text, label="Current Loras:")
 
-    # with gr.Accordion("Connection Details", open=False):
-    #     api_url = gr.Textbox(
-    #         value=args.endpoint_url,
-    #         label="TabbyAPI Endpoint URL:",
-    #         interactive=not bool(conn_key),
-    #     )
-    # admin_key = gr.Textbox(
-    #     value=args.admin_key,
-    #     label="Admin Key:",
-    #     type="password",
-    #     interactive=not bool(conn_key),
-    # )
-    # model_list = gr.Dropdown(
-    #     choices=[""] + models, label="Available Models:", interactive=True
-    # )
-    # draft_model_list = gr.Dropdown(
-    #     choices=[""] + draft_models,
-    #     label="Available Draft Models:",
-    #     interactive=True,
-    # )
-    # lora_list = gr.Textbox(
-    #     value=", ".join(loras), label="Available Loras:", visible=bool(conn_key)
-    # )
+    with gr.Row(variant="compact"):
+        current_model = gr.Textbox(
+            value=init_model_text, label="Current Model:", visible=True, scale=2
+        )
+        current_loras = gr.Textbox(
+            value=init_lora_text, label="Current Loras:", visible=True, scale=1
+        )
 
     with gr.Tabs():
         with gr.Tab("Load Model"):
-            with gr.Row():
-                load_model_btn = gr.Button(value="Load Model", variant="primary")
-                models_drop = gr.Dropdown(
-                    choices=[""] + models, label="Select Model:", interactive=True
-                )
-                unload_model_btn = gr.Button(
-                    value="Cancel Load/Unload Model", variant="stop"
-                )
-
-            with gr.Accordion(open=True, label="Presets"):
-                with gr.Row():
-                    load_preset = gr.Dropdown(
-                        choices=[""] + get_preset_list(True),
-                        label="Load Preset:",
-                        interactive=True,
+            with gr.Row(variant="compact"):
+                with gr.Column(variant="compact"):
+                    with gr.Row(variant="compact"):
+                        load_preset = gr.Dropdown(
+                            choices=[""] + get_preset_list(True),
+                            label="Load Preset:",
+                            interactive=True,
+                        )
+                    with gr.Row(variant="compact"):
+                        load_preset_btn = gr.Button(
+                            value="📋 Load Preset", variant="primary"
+                        )
+                        del_preset_btn = gr.Button(
+                            value="❌ Delete Preset", variant="stop"
+                        )
+                with gr.Column(variant="compact"):
+                    with gr.Row(variant="compact"):
+                        save_preset = gr.Textbox(label="Save Preset:", interactive=True)
+                    with gr.Row(variant="compact"):
+                        save_preset_btn = gr.Button(
+                            value="💾 Save Preset", variant="primary"
+                        )
+                        refresh_preset_btn = gr.Button(value="♻️ Refresh Presets")
+            with gr.Row(variant="compact"):
+                with gr.Column(variant="compact"):
+                    models_drop = gr.Dropdown(
+                        choices=[""] + models, label="Select Model:", interactive=True
                     )
-                    save_preset = gr.Textbox(label="Save Preset:", interactive=True)
+                    draft_models_drop = gr.Dropdown(
+                        choices=[""] + draft_models,
+                        label="Select Draft Model:",
+                        interactive=True,
+                        info="Must share the same tokenizer and vocabulary as the primary model.",
+                    )
+                    prompt_template = gr.Dropdown(
+                        choices=[""] + templates,
+                        value="",
+                        label="Prompt Template:",
+                        allow_custom_value=True,
+                        interactive=True,
+                        info="Jinja2 prompt template to be used for the chat completions endpoint.",
+                    )
+                with gr.Row(variant="compact"):
+                    with gr.Column(variant="compact"):
+                        load_model_btn = gr.Button(
+                            value="🚀 Load Model", variant="primary"
+                        )
+                        load_model_btn.scale = "2"
+                        unload_model_btn = gr.Button(
+                            value="🛑 Cancel Load/Unload Model", variant="stop"
+                        )
+                        unload_model_btn.scale = "2"
+                        with gr.Row(variant="compact", equal_height=True):
+                            load_template_btn = gr.Button(
+                                value="🚀 Load Template", variant="primary"
+                            )
+                            unload_template_btn = gr.Button(
+                                value="❌ Unload Template", variant="stop"
+                            )
 
-                with gr.Row():
-                    load_preset_btn = gr.Button(value="Load Preset", variant="primary")
-                    del_preset_btn = gr.Button(value="Delete Preset", variant="stop")
-                    save_preset_btn = gr.Button(value="Save Preset", variant="primary")
-                    refresh_preset_btn = gr.Button(value="Refresh Presets")
+        with gr.Tab("Sampler Overrides"):
+            with gr.Row(variant="compact"):
+                with gr.Row(variant="compact"):
+                    override_base_seq_len = gr.Slider(
+                        value=lambda: None,
+                        label="Override Base Sequence Length:",
+                        minimum=1,
+                        interactive=True,
+                        info="Override the model's 'base' sequence length in config.json. Only relevant when using automatic rope alpha. Leave blank if unsure.",
+                    )
+                    sampler_override = gr.Dropdown(
+                        choices=[""] + overrides,
+                        value="",
+                        label="Select Sampler Overrides:",
+                        interactive=True,
+                        info="Select a sampler override preset to load.",
+                    )
+                with gr.Row(variant="compact"):
+                    load_override_btn = gr.Button(
+                        value="⬆️ Load Override", variant="primary"
+                    )
+                    unload_override_btn = gr.Button(
+                        value="⬇️ Unload Override", variant="stop"
+                    )
+
+        with gr.Tab("Load Loras"):
+            with gr.Row(variant="compact"):
+                load_loras_btn = gr.Button(value="🚀 Load Loras", variant="primary")
+                loras_drop = gr.Dropdown(
+                    choices=loras,
+                    label="Select Loras:",
+                    multiselect=True,
+                    interactive=True,
+                )
+                unload_loras_btn = gr.Button(
+                    value="❌ Unload All Loras", variant="stop"
+                )
+
+            loras_drop = gr.Dropdown(
+                label="Select Loras:",
+                choices=loras,
+                multiselect=True,
+                interactive=True,
+                info="Select one or more loras to load, specify individual lora weights in the box that appears below (default 1.0).",
+            )
+            loras_table = gr.List(
+                label="Lora Scaling:",
+                visible=False,
+                datatype="number",
+                type="array",
+                interactive=True,
+            )
+
+        with gr.Tab("HF Downloader"):
+            with gr.Row(variant="compact"):
+                download_btn = gr.Button(value="Download", variant="primary")
+                repo_id = gr.Textbox(label="Repo ID:", interactive=True)
+                cancel_download_btn = gr.Button(value="Cancel", variant="stop")
+
+            with gr.Group():
+                with gr.Row(variant="compact"):
+                    repo_id = gr.Textbox(
+                        label="Repo ID:",
+                        interactive=True,
+                        info="Provided in the format <user/organization name>/<repo name>.",
+                    )
+                    revision = gr.Textbox(
+                        label="Revision/Branch:",
+                        interactive=True,
+                        info="Name of the revision/branch of the repository to download.",
+                    )
+
+                with gr.Row(variant="compact"):
+                    repo_type = gr.Dropdown(
+                        choices=["Model", "Lora"],
+                        value="Model",
+                        label="Repo Type:",
+                        interactive=True,
+                        info="Specify whether the repository contains a model or lora.",
+                    )
+                    folder_name = gr.Textbox(
+                        label="Folder Name:",
+                        interactive=True,
+                        info="Name to use for the local downloaded copy of the repository.",
+                    )
+
+                with gr.Row(variant="compact"):
+                    include = gr.Textbox(
+                        placeholder="adapter_config.json, adapter_model.bin",
+                        label="Include Patterns:",
+                        interactive=True,
+                        info="Comma-separated list of file patterns to download from repository (default all).",
+                    )
+                    exclude = gr.Textbox(
+                        placeholder="*.bin, *.pth",
+                        label="Exclude Patterns:",
+                        interactive=True,
+                        info="Comma-separated list of file patterns to exclude from download.",
+                    )
+                with gr.Row(variant="compact"):
+                    token = gr.Textbox(
+                        label="HF Access Token:",
+                        type="password",
+                        info="Provide HF access token to download from private/gated repositories.",
+                    )
 
         with gr.Group():
-            # models_drop = gr.Dropdown(
-            #     choices=[""] + models, label="Select Model:", interactive=True
-            # )
-            with gr.Row():
-                max_seq_len = gr.Number(
-                    value=lambda: None,
-                    label="Max Sequence Length:",
-                    precision=0,
-                    minimum=1,
-                    interactive=True,
-                    info="Configured context length to load the model with. If left blank, automatically reads from model config.",
-                )
-                override_base_seq_len = gr.Number(
-                    value=lambda: None,
-                    label="Override Base Sequence Length:",
-                    precision=0,
-                    minimum=1,
-                    interactive=True,
-                    info="Override the model's 'base' sequence length in config.json. Only relevant when using automatic rope alpha. Leave blank if unsure.",
-                )
-                cache_size = gr.Number(
-                    value=lambda: None,
-                    label="Cache Size:",
-                    precision=0,
-                    minimum=1,
-                    interactive=True,
-                    info="Size of the prompt cache to allocate (in number of tokens, multiple of 256). Defaults to max sequence length if left blank.",
-                )
+            with gr.Row(variant="compact", equal_height=True):
+                with gr.Column(variant="compact"):
+                    max_seq_len = gr.Slider(
+                        value=8192,
+                        label="Max Sequence Length:",
+                        minimum=256,
+                        maximum=262144,
+                        interactive=True,
+                        step=256,
+                        info="Configured context length to load the model with. If left blank, automatically reads from model config.",
+                    )
+                    gpu_split_auto = gr.Checkbox(
+                        value=True,
+                        label="GPU Split Auto",
+                        interactive=True,
+                        info="Automatically determine how to split model layers between multiple GPUs.",
+                    )
+                    fasttensors = gr.Checkbox(
+                        value=True,
+                        label="Use Fasttensors",
+                        interactive=True,
+                        info="Enable to possibly increase model loading speeds on some systems.",
+                    )
+                    cache_mode = gr.Radio(
+                        value="Q4",
+                        label="Cache Mode:",
+                        choices=["Q4", "Q6", "Q8", "FP16"],
+                        interactive=True,
+                        info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
+                    )
+                    draft_cache_mode = gr.Radio(
+                        value="FP16",
+                        label="Draft Cache Mode:",
+                        choices=["Q4", "Q6", "Q8", "FP16"],
+                        interactive=True,
+                        info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
+                    )
+                with gr.Column(variant="compact"):
+                    with gr.Row(variant="compact", equal_height=True):
+                        cache_size = gr.Slider(
+                            label="Cache Size:",
+                            value=lambda: max_seq_len.value,
+                            maximum=262144,
+                            step=256,
+                            interactive=True,
+                            info="Size of the prompt cache to allocate (in number of tokens, multiple of 256). Defaults to max sequence length if left blank.",
+                        )
+                        chunk_size = gr.Slider(
+                            value=lambda: None,
+                            label="Chunk Size:",
+                            interactive=True,
+                            info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
+                        )
+                    with gr.Row(variant="compact", equal_height=True):
+                        autosplit_reserve = gr.Slider(
+                            label="Auto-split Reserve:",
+                            minimum=0,
+                            maximum=1000,
+                            value=96,
+                            step=8,
+                            interactive=True,
+                            info="Amount of VRAM to keep reserved on each GPU when using auto split. In megabytes.",
+                        )
+                        gpu_split = gr.Textbox(
+                            label="GPU Split:",
+                            placeholder="20.6,24",
+                            visible=True,
+                            interactive=True,
+                            info="Amount of VRAM TabbyAPI will be allowed to use on each GPU. List of numbers separated by commas, in gigabytes.",
+                        )
 
-            with gr.Row():
-                model_rope_scale = gr.Number(
-                    value=lambda: None,
-                    label="Rope Scale:",
-                    minimum=1,
-                    interactive=True,
-                    info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
-                )
-                model_rope_alpha = gr.Number(
-                    value=lambda: None,
-                    label="Rope Alpha:",
-                    minimum=1,
-                    interactive=True,
-                    info="Factor used for NTK-aware rope scaling. Leave blank for automatic calculation based on your configured max_seq_len and the model's base context length.",
-                )
-
-        with gr.Accordion(open=True, label="Speculative Decoding"):
-            draft_models_drop = gr.Dropdown(
-                choices=[""] + draft_models,
-                label="Select Draft Model:",
-                interactive=True,
-                info="Must share the same tokenizer and vocabulary as the primary model.",
-            )
-            with gr.Row():
+        with gr.Row(variant="compact", equal_height=True):
+            with gr.Column(variant="compact"):
+                with gr.Column(variant="compact"):
+                    model_rope_scale = gr.Slider(
+                        value=lambda: None,
+                        label="Rope Scale:",
+                        minimum=1,
+                        interactive=True,
+                        info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
+                    )
+                    model_rope_alpha = gr.Slider(
+                        value=lambda: None,
+                        label="Rope Alpha:",
+                        minimum=1,
+                        interactive=True,
+                        info="Factor used for NTK-aware rope scaling. Leave blank for automatic calculation based on your configured max_seq_len and the model's base context length.",
+                    )
+                    num_experts_per_token = gr.Number(
+                        value=lambda: None,
+                        label="Number of experts per token (MoE only):",
+                        precision=0,
+                        interactive=True,
+                        info="Number of experts to use for simultaneous inference in mixture of experts. If left blank, automatically reads from model config.",
+                    )
+            with gr.Column(variant="compact"):
                 draft_rope_scale = gr.Number(
                     value=lambda: None,
                     label="Draft Rope Scale:",
-                    minimum=1,
                     interactive=True,
                     info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
                 )
                 draft_rope_alpha = gr.Number(
                     value=lambda: None,
                     label="Draft Rope Alpha:",
-                    minimum=1,
                     interactive=True,
                     info="Factor used for NTK-aware rope scaling. Leave blank for automatic scaling calculated based on your configured max_seq_len and the model's base context length.",
                 )
-                draft_cache_mode = gr.Radio(
-                    value="FP16",
-                    label="Draft Cache Mode:",
-                    choices=["Q4", "Q6", "Q8", "FP16"],
-                    interactive=True,
-                    info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
-                )
-
-        with gr.Group():
-            with gr.Row():
-                cache_mode = gr.Radio(
-                    value="Q4",
-                    label="Cache Mode:",
-                    choices=["Q4", "Q6", "Q8", "FP16"],
-                    interactive=True,
-                    info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
-                )
-                gpu_split_auto = gr.Checkbox(
-                    value=True,
-                    label="GPU Split Auto",
-                    interactive=True,
-                    info="Automatically determine how to split model layers between multiple GPUs.",
-                )
-                fasttensors = gr.Checkbox(
-                    value=True,
-                    label="Use Fasttensors",
-                    interactive=True,
-                    info="Enable to possibly increase model loading speeds on some systems.",
-                )
-
-            gpu_split = gr.Textbox(
-                label="GPU Split:",
-                placeholder="20.6,24",
-                visible=True,
-                interactive=True,
-                info="Amount of VRAM TabbyAPI will be allowed to use on each GPU. List of numbers separated by commas, in gigabytes.",
-            )
-            autosplit_reserve = gr.Textbox(
-                label="Auto-split Reserve:",
-                placeholder="96",
-                interactive=True,
-                info="Amount of VRAM to keep reserved on each GPU when using auto split. List of numbers separated by commas, in megabytes.",
-            )
-            with gr.Row():
-                num_experts_per_token = gr.Number(
-                    value=lambda: None,
-                    label="Number of experts per token (MoE only):",
-                    precision=0,
-                    minimum=1,
-                    interactive=True,
-                    info="Number of experts to use for simultaneous inference in mixture of experts. If left blank, automatically reads from model config.",
-                )
-                chunk_size = gr.Number(
-                    value=lambda: None,
-                    label="Chunk Size:",
-                    precision=0,
-                    minimum=1,
-                    interactive=True,
-                    info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
-                )
-
-        with gr.Accordion(open=True, label="Prompt Templates"):
-            prompt_template = gr.Dropdown(
-                choices=[""] + templates,
-                value="",
-                label="Prompt Template:",
-                allow_custom_value=True,
-                interactive=True,
-                info="Jinja2 prompt template to be used for the chat completions endpoint.",
-            )
-            with gr.Row():
-                load_template_btn = gr.Button(value="Load Template", variant="primary")
-                unload_template_btn = gr.Button(value="Unload Template", variant="stop")
-
-        with gr.Accordion(open=False, label="Sampler Overrides"):
-            sampler_override = gr.Dropdown(
-                choices=[""] + overrides,
-                value="",
-                label="Select Sampler Overrides:",
-                interactive=True,
-                info="Select a sampler override preset to load.",
-            )
-            with gr.Row():
-                load_override_btn = gr.Button(value="Load Override", variant="primary")
-                unload_override_btn = gr.Button(value="Unload Override", variant="stop")
-
-    with gr.Tab("Load Loras"):
-        with gr.Row():
-            load_loras_btn = gr.Button(value="Load Loras", variant="primary")
-            loras_drop = gr.Dropdown(
-                choices=loras, label="Select Loras:", multiselect=True, interactive=True
-            )
-            unload_loras_btn = gr.Button(value="Unload All Loras", variant="stop")
-
-        loras_drop = gr.Dropdown(
-            label="Select Loras:",
-            choices=loras,
-            multiselect=True,
-            interactive=True,
-            info="Select one or more loras to load, specify individual lora weights in the box that appears below (default 1.0).",
-        )
-        loras_table = gr.List(
-            label="Lora Scaling:",
-            visible=False,
-            datatype="number",
-            type="array",
-            interactive=True,
-        )
-
-    with gr.Tab("HF Downloader"):
-        with gr.Row():
-            download_btn = gr.Button(value="Download", variant="primary")
-            repo_id = gr.Textbox(label="Repo ID:", interactive=True)
-            cancel_download_btn = gr.Button(value="Cancel", variant="stop")
-
-        with gr.Group():
-            with gr.Row():
-                repo_id = gr.Textbox(
-                    label="Repo ID:",
-                    interactive=True,
-                    info="Provided in the format <user/organization name>/<repo name>.",
-                )
-                revision = gr.Textbox(
-                    label="Revision/Branch:",
-                    interactive=True,
-                    info="Name of the revision/branch of the repository to download.",
-                )
-
-            with gr.Row():
-                repo_type = gr.Dropdown(
-                    choices=["Model", "Lora"],
-                    value="Model",
-                    label="Repo Type:",
-                    interactive=True,
-                    info="Specify whether the repository contains a model or lora.",
-                )
-                folder_name = gr.Textbox(
-                    label="Folder Name:",
-                    interactive=True,
-                    info="Name to use for the local downloaded copy of the repository.",
-                )
-
-            with gr.Row():
-                include = gr.Textbox(
-                    placeholder="adapter_config.json, adapter_model.bin",
-                    label="Include Patterns:",
-                    interactive=True,
-                    info="Comma-separated list of file patterns to download from repository (default all).",
-                )
-                exclude = gr.Textbox(
-                    placeholder="*.bin, *.pth",
-                    label="Exclude Patterns:",
-                    interactive=True,
-                    info="Comma-separated list of file patterns to exclude from download.",
-                )
-
-            with gr.Row():
-                token = gr.Textbox(
-                    label="HF Access Token:",
-                    type="password",
-                    info="Provide HF access token to download from private/gated repositories.",
-                )
-
-    # Define event listeners
-    # Connection tab
-    # connect_btn.click(
-    #     fn=connect,
-    #     inputs=[api_url, admin_key],
-    #     outputs=[
-    #         model_list,
-    #         draft_model_list,
-    #         lora_list,
-    #         models_drop,
-    #         draft_models_drop,
-    #         loras_drop,
-    #         prompt_template,
-    #         sampler_override,
-    #         current_model,
-    #         current_loras,
-    #         connection_status,
-    #         connect_btn,
-    #         api_url,
-    #         admin_key,
-    #     ],
-    # )
-
-    # disconnect_btn.click(
-    #     fn=disconnect,
-    # )
-
     # Model tab
     load_preset_btn.click(
         fn=read_preset,
