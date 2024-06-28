@@ -245,19 +245,27 @@ def connect(api_url, admin_key, silent=False):
     overrides.sort(key=str.lower)
 
     if not silent:
-        gr.Info("TabbyAPI connected.")
-        return (
-            gr.Textbox(value=", ".join(models), visible=True),
-            gr.Textbox(value=", ".join(draft_models), visible=True),
-            gr.Textbox(value=", ".join(loras), visible=True),
-            get_model_list(),
-            get_draft_model_list(),
-            get_lora_list(),
-            get_template_list(),
-            get_override_list(),
-            get_current_model(),
-            get_current_loras(),
-        )
+        print("TabbyAPI connected.")
+
+    return models, draft_models, loras, templates, overrides
+
+
+def disconnect():
+    global conn_url
+    global conn_key
+    global models
+    global draft_models
+    global loras
+    global templates
+    global overrides
+    conn_url = None
+    conn_key = None
+    models = []
+    draft_models = []
+    loras = []
+    templates = []
+    overrides = []
+    return
 
 
 def get_model_list():
@@ -596,16 +604,39 @@ def cancel_download():
 # Auto-attempt connection if admin key is provided
 init_model_text = None
 init_lora_text = None
-if args.admin_key:
+if args.admin_key or args.noauth:
+    print("Attempting auto-connection...")
     try:
-        connect(api_url=args.endpoint_url, admin_key=args.admin_key, silent=True)
+        models, draft_models, loras, templates, overrides = connect(
+            api_url=args.endpoint_url, admin_key=args.admin_key, silent=True
+        )
+        conn_key = args.admin_key if args.admin_key else "noauth"
         init_model_text = get_current_model().value
         init_lora_text = get_current_loras().value
-    except Exception:
-        print("Automatic connection failed, continuing to WebUI.")
+        print(f"Connected models: {models}")
+        print(f"Connected draft models: {draft_models}")
+        print(f"Connected loras: {loras}")
+    except Exception as e:
+        print(f"Automatic connection failed: {str(e)}")
+        print("Continuing to WebUI.")
+
+print(f"Models after connection: {models}")
+print(f"Draft models after connection: {draft_models}")
+print(f"Loras after connection: {loras}")
 
 # Setup UI elements
 with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
+    with gr.Row():
+        connection_status = gr.Markdown(
+            value=f"Connected to {conn_url}" if conn_key else "Not connected"
+        )
+        connect_btn = gr.Button(
+            value="Connect", variant="primary", visible=not bool(conn_key)
+        )
+        disconnect_btn = gr.Button(
+            value="Disconnect", variant="stop", visible=bool(conn_key)
+        )
+
     gr.Markdown(
         """
     # TabbyAPI Gradio Loader
@@ -614,13 +645,17 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
     current_model = gr.Textbox(value=init_model_text, label="Current Model:")
     current_loras = gr.Textbox(value=init_lora_text, label="Current Loras:")
 
-    with gr.Tab("Connect to API"):
-        connect_btn = gr.Button(value="Connect", variant="primary")
+    with gr.Accordion("Connection Details", open=False):
         api_url = gr.Textbox(
-            value=args.endpoint_url, label="TabbyAPI Endpoint URL:", interactive=True
+            value=args.endpoint_url,
+            label="TabbyAPI Endpoint URL:",
+            interactive=not bool(conn_key),
         )
         admin_key = gr.Textbox(
-            value=args.admin_key, label="Admin Key:", type="password", interactive=True
+            value=args.admin_key,
+            label="Admin Key:",
+            type="password",
+            interactive=not bool(conn_key),
         )
         model_list = gr.Textbox(
             value=", ".join(models), label="Available Models:", visible=bool(conn_key)
@@ -634,27 +669,31 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
             value=", ".join(loras), label="Available Loras:", visible=bool(conn_key)
         )
 
-    with gr.Tab("Load Model"):
-        with gr.Row():
-            load_model_btn = gr.Button(value="Load Model", variant="primary")
-            unload_model_btn = gr.Button(
-                value="Cancel Load/Unload Model", variant="stop"
-            )
-
-        with gr.Accordion(open=False, label="Presets"):
+    with gr.Tabs():
+        with gr.Tab("Load Model"):
             with gr.Row():
-                load_preset = gr.Dropdown(
-                    choices=[""] + get_preset_list(True),
-                    label="Load Preset:",
-                    interactive=True,
+                load_model_btn = gr.Button(value="Load Model", variant="primary")
+                models_drop = gr.Dropdown(
+                    choices=[""] + models, label="Select Model:", interactive=True
                 )
-                save_preset = gr.Textbox(label="Save Preset:", interactive=True)
+                unload_model_btn = gr.Button(
+                    value="Cancel Load/Unload Model", variant="stop"
+                )
 
-            with gr.Row():
-                load_preset_btn = gr.Button(value="Load Preset", variant="primary")
-                del_preset_btn = gr.Button(value="Delete Preset", variant="stop")
-                save_preset_btn = gr.Button(value="Save Preset", variant="primary")
-                refresh_preset_btn = gr.Button(value="Refresh Presets")
+            with gr.Accordion(open=True, label="Presets"):
+                with gr.Row():
+                    load_preset = gr.Dropdown(
+                        choices=[""] + get_preset_list(True),
+                        label="Load Preset:",
+                        interactive=True,
+                    )
+                    save_preset = gr.Textbox(label="Save Preset:", interactive=True)
+
+                with gr.Row():
+                    load_preset_btn = gr.Button(value="Load Preset", variant="primary")
+                    del_preset_btn = gr.Button(value="Delete Preset", variant="stop")
+                    save_preset_btn = gr.Button(value="Save Preset", variant="primary")
+                    refresh_preset_btn = gr.Button(value="Refresh Presets")
 
         with gr.Group():
             models_drop = gr.Dropdown(
@@ -702,7 +741,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
                     info="Factor used for NTK-aware rope scaling. Leave blank for automatic calculation based on your configured max_seq_len and the model's base context length.",
                 )
 
-        with gr.Accordion(open=False, label="Speculative Decoding"):
+        with gr.Accordion(open=True, label="Speculative Decoding"):
             draft_models_drop = gr.Dropdown(
                 choices=[""] + draft_models,
                 label="Select Draft Model:",
@@ -735,7 +774,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
         with gr.Group():
             with gr.Row():
                 cache_mode = gr.Radio(
-                    value="FP16",
+                    value="Q4",
                     label="Cache Mode:",
                     choices=["Q4", "Q6", "Q8", "FP16"],
                     interactive=True,
@@ -748,7 +787,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
                     info="Automatically determine how to split model layers between multiple GPUs.",
                 )
                 fasttensors = gr.Checkbox(
-                    value=False,
+                    value=True,
                     label="Use Fasttensors",
                     interactive=True,
                     info="Enable to possibly increase model loading speeds on some systems.",
@@ -757,7 +796,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
             gpu_split = gr.Textbox(
                 label="GPU Split:",
                 placeholder="20.6,24",
-                visible=False,
+                visible=True,
                 interactive=True,
                 info="Amount of VRAM TabbyAPI will be allowed to use on each GPU. List of numbers separated by commas, in gigabytes.",
             )
@@ -813,6 +852,9 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
     with gr.Tab("Load Loras"):
         with gr.Row():
             load_loras_btn = gr.Button(value="Load Loras", variant="primary")
+            loras_drop = gr.Dropdown(
+                choices=loras, label="Select Loras:", multiselect=True, interactive=True
+            )
             unload_loras_btn = gr.Button(value="Unload All Loras", variant="stop")
 
         loras_drop = gr.Dropdown(
@@ -833,6 +875,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
     with gr.Tab("HF Downloader"):
         with gr.Row():
             download_btn = gr.Button(value="Download", variant="primary")
+            repo_id = gr.Textbox(label="Repo ID:", interactive=True)
             cancel_download_btn = gr.Button(value="Cancel", variant="stop")
 
         with gr.Group():
@@ -899,7 +942,15 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
             sampler_override,
             current_model,
             current_loras,
+            connection_status,
+            connect_btn,
+            api_url,
+            admin_key,
         ],
+    )
+
+    disconnect_btn.click(
+        fn=disconnect,
     )
 
     # Model tab
@@ -1010,7 +1061,7 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
 
 webui.launch(
     inbrowser=args.autolaunch,
-    show_api=False,
+    show_api=True,
     server_name=host_url,
     server_port=args.port,
     share=args.share,
