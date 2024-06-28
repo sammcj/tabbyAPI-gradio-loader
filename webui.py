@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import os
 import pathlib
 
 import aiohttp
@@ -68,6 +69,9 @@ parser.add_argument(
 args = parser.parse_args()
 if args.listen:
     host_url = "0.0.0.0"
+
+if "TABBY_ADMIN_KEY" in os.environ and not args.admin_key:
+    args.admin_key = os.environ["TABBY_ADMIN_KEY"]
 
 
 def read_preset(name):
@@ -626,21 +630,10 @@ print(f"Loras after connection: {loras}")
 
 # Setup UI elements
 with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
-    with gr.Row():
-        connection_status = gr.Markdown(
-            value=f"Connected to {conn_url}" if conn_key else "Not connected"
-        )
-        connect_btn = gr.Button(
-            value="Connect", variant="primary", visible=not bool(conn_key)
-        )
-        disconnect_btn = gr.Button(
-            value="Disconnect", variant="stop", visible=bool(conn_key)
-        )
-
     gr.Markdown(
-        """
-    # TabbyAPI Gradio Loader
-    """
+        f"## TabbyAPI Exllamav2 Server - Connected to {conn_url}"
+        if conn_key
+        else "## TabbyAPI Exllamav2 Server - Not connected"
     )
     current_model = gr.Textbox(value=init_model_text, label="Current Model:")
     current_loras = gr.Textbox(value=init_lora_text, label="Current Loras:")
@@ -651,19 +644,19 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
             label="TabbyAPI Endpoint URL:",
             interactive=not bool(conn_key),
         )
-        admin_key = gr.Textbox(
-            value=args.admin_key,
-            label="Admin Key:",
-            type="password",
-            interactive=not bool(conn_key),
+        # admin_key = gr.Textbox(
+        #     value=args.admin_key,
+        #     label="Admin Key:",
+        #     type="password",
+        #     interactive=not bool(conn_key),
+        # )
+        model_list = gr.Dropdown(
+            choices=[""] + models, label="Available Models:", interactive=True
         )
-        model_list = gr.Textbox(
-            value=", ".join(models), label="Available Models:", visible=bool(conn_key)
-        )
-        draft_model_list = gr.Textbox(
-            value=", ".join(draft_models),
+        draft_model_list = gr.Dropdown(
+            choices=[""] + draft_models,
             label="Available Draft Models:",
-            visible=bool(conn_key),
+            interactive=True,
         )
         lora_list = gr.Textbox(
             value=", ".join(loras), label="Available Loras:", visible=bool(conn_key)
@@ -696,9 +689,9 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
                     refresh_preset_btn = gr.Button(value="Refresh Presets")
 
         with gr.Group():
-            models_drop = gr.Dropdown(
-                choices=[""] + models, label="Select Model:", interactive=True
-            )
+            # models_drop = gr.Dropdown(
+            #     choices=[""] + models, label="Select Model:", interactive=True
+            # )
             with gr.Row():
                 max_seq_len = gr.Number(
                     value=lambda: None,
@@ -928,30 +921,30 @@ with gr.Blocks(title="TabbyAPI Gradio Loader") as webui:
 
     # Define event listeners
     # Connection tab
-    connect_btn.click(
-        fn=connect,
-        inputs=[api_url, admin_key],
-        outputs=[
-            model_list,
-            draft_model_list,
-            lora_list,
-            models_drop,
-            draft_models_drop,
-            loras_drop,
-            prompt_template,
-            sampler_override,
-            current_model,
-            current_loras,
-            connection_status,
-            connect_btn,
-            api_url,
-            admin_key,
-        ],
-    )
+    # connect_btn.click(
+    #     fn=connect,
+    #     inputs=[api_url, admin_key],
+    #     outputs=[
+    #         model_list,
+    #         draft_model_list,
+    #         lora_list,
+    #         models_drop,
+    #         draft_models_drop,
+    #         loras_drop,
+    #         prompt_template,
+    #         sampler_override,
+    #         current_model,
+    #         current_loras,
+    #         connection_status,
+    #         connect_btn,
+    #         api_url,
+    #         admin_key,
+    #     ],
+    # )
 
-    disconnect_btn.click(
-        fn=disconnect,
-    )
+    # disconnect_btn.click(
+    #     fn=disconnect,
+    # )
 
     # Model tab
     load_preset_btn.click(
