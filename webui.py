@@ -7,9 +7,10 @@ import pathlib
 import aiohttp
 import gradio as gr
 import requests
+import asyncio
+import aiohttp
+import re
 
-conn_url = None
-conn_key = None
 
 host_url = "127.0.0.1"
 
@@ -72,6 +73,8 @@ if args.listen:
 
 if "TABBY_ADMIN_KEY" in os.environ and not args.admin_key:
     args.admin_key = os.environ["TABBY_ADMIN_KEY"]
+conn_url = None
+args.admin_key = args.admin_key
 
 
 def read_preset(name):
@@ -176,7 +179,6 @@ def get_preset_list(raw=False):
 
 def connect(api_url, admin_key, silent=False):
     global conn_url
-    global conn_key
     global models
     global draft_models
     global loras
@@ -221,7 +223,7 @@ def connect(api_url, admin_key, silent=False):
         raise gr.Error(e)
 
     conn_url = api_url
-    conn_key = admin_key
+    args.admin_key = admin_key
 
     models = []
     for model in m.json().get("data"):
@@ -256,14 +258,13 @@ def connect(api_url, admin_key, silent=False):
 
 def disconnect():
     global conn_url
-    global conn_key
     global models
     global draft_models
     global loras
     global templates
     global overrides
     conn_url = None
-    conn_key = None
+    args.admin_key = None
     models = []
     draft_models = []
     loras = []
@@ -294,7 +295,7 @@ def get_override_list():
 
 def get_current_model():
     model_card = requests.get(
-        url=conn_url + "/v1/model", headers={"X-api-key": conn_key}
+        url=conn_url + "/v1/model", headers={"X-api-key": args.admin_key}
     ).json()
     if not model_card.get("id"):
         return gr.Textbox(value=None)
@@ -309,7 +310,9 @@ def get_current_model():
 
 
 def get_current_loras():
-    lo = requests.get(url=conn_url + "/v1/lora", headers={"X-api-key": conn_key}).json()
+    lo = requests.get(
+        url=conn_url + "/v1/lora", headers={"X-api-key": args.admin_key}
+    ).json()
     if not lo.get("data"):
         return gr.Textbox(value=None)
     lora_list = lo.get("data")
@@ -335,7 +338,30 @@ def update_loras_table(loras):
         return gr.List(value=None, visible=False)
 
 
-import re
+def format_list_param(param):
+    if isinstance(param, str):
+        return [float(x.strip()) for x in param.split(",") if x.strip()]
+    elif isinstance(param, (int, float)):
+        return [float(param)]
+    elif isinstance(param, list):
+        return [float(x) for x in param]
+    return None
+
+
+print(f"Admin Key from Args: {args.admin_key}")
+if args.noauth:
+    print("Using no-auth mode.")
+else:
+    print(f"Conn Key: {args.admin_key}")
+
+
+async def test_connection():
+    async with aiohttp.ClientSession() as session:
+        response = await session.get(
+            url=conn_url + "/v1/model", headers={"X-api-key": args.admin_key}
+        )
+        print(f"Test connection status: {response.status}")
+        print(f"Test connection body: {await response.text()}")
 
 
 async def load_model(
@@ -360,139 +386,190 @@ async def load_model(
 ):
     global model_load_task
     global model_load_state
+    global conn_url
+
+    await test_connection()  # TODO: removeme when debugging done
+
     model_load_state = True
     if not model_name:
         raise gr.Error("Specify a model to load!")
 
-    # Ensure max_seq_len is a multiple of 256
-    if max_seq_len:
-        max_seq_len = ((max_seq_len + 255) // 256) * 256
-    else:
-        max_seq_len = 2048  # Default value if not specified
+    gr.Info(f"Using connection URL: {conn_url}")
+    gr.Info(f"API Key (first 2 chars): {args.admin_key[:2]}...")
 
-    # Ensure cache_size is at least twice max_seq_len and a multiple of 256
-    if cache_size:
-        cache_size = max(cache_size, 2 * max_seq_len)
-        cache_size = ((cache_size + 255) // 256) * 256
-    else:
-        cache_size = 2 * max_seq_len
-
-    gpu_split_parsed = []
-    try:
-        if gpu_split:
-            gpu_split_parsed = [float(i) for i in list(gpu_split.split(","))]
-    except ValueError:
-        raise gr.Error("Check your GPU split values and ensure they are valid!")
-    autosplit_reserve_parsed = []
-    try:
-        if autosplit_reserve:
-            autosplit_reserve_parsed = [
-                # float(i) for i in list(autosplit_reserve.split(","))
-                float(autosplit_reserve)
-            ]
-    except ValueError:
-        raise gr.Error("Check your autosplit reserve values and ensure they are valid!")
-    if draft_model_name:
-        draft_request = {
-            "draft_model_name": draft_model_name,
-            "draft_rope_scale": draft_rope_scale,
-            "draft_rope_alpha": draft_rope_alpha,
-            "draft_cache_mode": draft_cache_mode,
-        }
-    else:
-        draft_request = None
-
-    async def attempt_load(seq_len, c_size):
+    async def attempt_load(session, seq_len, c_size, attempt_number):
         nonlocal max_seq_len, cache_size
-        request = {
-            k: v
-            for k, v in {
-                "name": model_name,
-                "max_seq_len": seq_len,
-                "override_base_seq_len": override_base_seq_len,
-                "cache_size": c_size,
-                "gpu_split_auto": gpu_split_auto,
-                "gpu_split": gpu_split_parsed if gpu_split_parsed else None,
-                "rope_scale": model_rope_scale,
-                "rope_alpha": model_rope_alpha,
-                "cache_mode": cache_mode,
-                "prompt_template": prompt_template,
-                "num_experts_per_token": num_experts_per_token,
-                "fasttensors": fasttensors,
-                "autosplit_reserve": (
-                    autosplit_reserve_parsed if autosplit_reserve_parsed else None
-                ),
-                "chunk_size": chunk_size,
-                "draft": draft_request,
-            }.items()
-            if v is not None
-        }
 
-        async with aiohttp.ClientSession() as session:
-            model_load_task = asyncio.create_task(
-                session.post(
-                    url=conn_url + "/v1/model/load",
-                    headers={"X-admin-key": conn_key},
-                    json=request,
-                )
-            )
-            r = await model_load_task
-            r.raise_for_status()
-            async for chunk in r.content:
-                if not model_load_state:
-                    raise asyncio.CancelledError("Model load canceled.")
-                chunk_str = chunk.decode("utf-8")
-                if chunk_str.startswith("data: "):
-                    data = json.loads(chunk_str.lstrip("data: "))
-                    if data.get("status") == "finished":
-                        return True
-                    elif data.get("status") == "error":
-                        error_msg = data.get("message", "")
-                        if "Model has max_batch_size * max_input_len" in error_msg:
-                            match = re.search(
-                                r"generator requires max_batch_size \* max_q_size = (\d+) \* (\d+) tokens",
-                                error_msg,
+        formatted_gpu_split = (
+            format_list_param(gpu_split) if not gpu_split_auto else None
+        )
+        formatted_autosplit_reserve = format_list_param(autosplit_reserve)
+
+        request = {
+            "name": model_name,
+            "max_seq_len": seq_len,
+            "override_base_seq_len": override_base_seq_len,
+            "cache_size": c_size,
+            "gpu_split_auto": gpu_split_auto,
+            "gpu_split": formatted_gpu_split,
+            "rope_scale": model_rope_scale,
+            "rope_alpha": model_rope_alpha,
+            "cache_mode": cache_mode,
+            "prompt_template": prompt_template,
+            "num_experts_per_token": num_experts_per_token,
+            "fasttensors": fasttensors,
+            "autosplit_reserve": formatted_autosplit_reserve,
+            "chunk_size": chunk_size,
+            "draft": (
+                {
+                    "draft_model_name": draft_model_name,
+                    "draft_rope_scale": draft_rope_scale,
+                    "draft_rope_alpha": draft_rope_alpha,
+                    "draft_cache_mode": draft_cache_mode,
+                }
+                if draft_model_name
+                else None
+            ),
+        }
+        request = {k: v for k, v in request.items() if v is not None}
+
+        gr.Info(
+            f"Attempt {attempt_number}: Sending request: {json.dumps(request, indent=2)}"
+        )
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
+            async with session.post(
+                url=conn_url + "/v1/model/load",
+                headers={"X-admin-key": args.admin_key},
+                json=request,
+                timeout=timeout,
+            ) as response:
+                gr.Info(f"Load request status: {response.status}")
+                if response.status != 200:
+                    error_content = await response.text()
+                    gr.Error(
+                        f"Attempt {attempt_number}: Server returned status {response.status}. Server response: {error_content}"
+                    )
+                    return False, f"Server error {response.status}: {error_content}"
+
+                async for chunk in response.content:
+                    if not model_load_state:
+                        raise asyncio.CancelledError("Model load canceled.")
+                    chunk_str = chunk.decode("utf-8")
+                    if chunk_str.startswith("data: "):
+                        data = json.loads(chunk_str.lstrip("data: "))
+                        gr.Info(f"Received data: {data}")
+                        if data.get("status") == "finished":
+                            gr.Info(
+                                f"Attempt {attempt_number}: Model loaded successfully"
                             )
-                            if match:
-                                required_tokens = int(match.group(1)) * int(
-                                    match.group(2)
+                            return True, "Success"
+                        elif data.get("status") == "error":
+                            error_msg = data.get("message", "")
+                            if "Model has max_batch_size * max_input_len" in error_msg:
+                                match = re.search(
+                                    r"generator requires max_batch_size \* max_q_size = (\d+) \* (\d+) tokens",
+                                    error_msg,
                                 )
-                                new_seq_len = ((required_tokens + 255) // 256) * 256
-                                if new_seq_len > seq_len:
-                                    max_seq_len = new_seq_len
-                                    cache_size = max(cache_size, 2 * max_seq_len)
-                                    gr.Info(
-                                        f"Retrying with increased max_seq_len: {max_seq_len}"
+                                if match:
+                                    required_tokens = int(match.group(1)) * int(
+                                        match.group(2)
                                     )
-                                    return False
-                        raise gr.Error(f"Error loading model: {error_msg}")
-            return True
+                                    new_seq_len = ((required_tokens + 255) // 256) * 256
+                                    max_seq_len = new_seq_len
+                                    cache_size = max(c_size, 2 * max_seq_len)
+                                    gr.Info(
+                                        f"Attempt {attempt_number}: Adjusting parameters: max_seq_len = {max_seq_len}, cache_size = {cache_size}"
+                                    )
+                                    return False, f"Error loading model: {error_msg}"
+                return False, "Unknown error: No status received from server"
+        except asyncio.CancelledError:
+            await session.post(
+                url=conn_url + "/v1/model/unload",
+                headers={"X-admin-key": args.admin_key},
+            )
+            raise
+        except aiohttp.ClientConnectorError as e:
+            gr.Error(f"Attempt {attempt_number}: Connection error: {str(e)}")
+            return False, f"Connection error: {str(e)}"
+        except aiohttp.ClientError as e:
+            gr.Error(f"Attempt {attempt_number}: Client error: {str(e)}")
+            return False, f"Client error: {str(e)}"
+        except Exception as e:
+            gr.Error(
+                f"Attempt {attempt_number}: Unexpected error during model load: {str(e)}"
+            )
+            return False, f"Unexpected error: {str(e)}"
 
     try:
-        requests.post(
-            url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
-        )
-        gr.Info(f"Loading {model_name}.")
+        timeout = aiohttp.ClientTimeout(total=900)  # 15 minutes total timeout
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Unload existing model
+            unload_response = await session.post(
+                url=conn_url + "/v1/model/unload",
+                headers={"X-admin-key": args.admin_key},
+            )
+            gr.Info(f"Unload request status: {unload_response.status}")
+            if unload_response.status != 200:
+                unload_content = await unload_response.text()
+                gr.Warning(
+                    f"Unload request returned status {unload_response.status}: {unload_content}"
+                )
 
-        success = False
-        retry_count = 0
-        while not success and retry_count < 3:
-            success = await attempt_load(max_seq_len, cache_size)
-            retry_count += 1
+            gr.Info(f"Loading {model_name}.")
 
-        if success:
-            gr.Info("Model successfully loaded.")
-            return get_current_model(), get_current_loras()
-        else:
-            raise gr.Error("Failed to load the model after multiple attempts.")
+            success = False
+            retry_count = 0
+            error_messages = []
+            while not success and retry_count < 3:
+                retry_count += 1
+                success, message = await attempt_load(
+                    session, max_seq_len, cache_size, retry_count
+                )
+                if not success:
+                    error_messages.append(f"Attempt {retry_count}: {message}")
+                    gr.Info(f"Retrying with new parameters (attempt {retry_count}/3)")
+
+            if success:
+                # Verify model load
+                gr.Info("Verifying model load...")
+                verify_response = await session.get(
+                    url=conn_url + "/v1/model", headers={"X-api-key": args.admin_key}
+                )
+                gr.Info(f"Verification request status: {verify_response.status}")
+                if verify_response.status == 200:
+                    model_info = await verify_response.json()
+                    gr.Info(f"Verification response: {model_info}")
+                    if model_info.get("id") == model_name:
+                        gr.Info("Model successfully loaded and verified.")
+                        return get_current_model(), get_current_loras()
+                    else:
+                        raise gr.Error(
+                            f"Model load reported success, but verification failed. Server reports: {model_info}"
+                        )
+                elif verify_response.status == 401:
+                    verify_content = await verify_response.text()
+                    raise gr.Error(
+                        f"Authentication failed during model verification. Server response: {verify_content}"
+                    )
+                else:
+                    verify_content = await verify_response.text()
+                    raise gr.Error(
+                        f"Model load reported success, but verification failed. Server returned status {verify_response.status}: {verify_content}"
+                    )
+            else:
+                error_summary = "\n".join(error_messages)
+                raise gr.Error(
+                    f"Failed to load the model after multiple attempts:\n{error_summary}"
+                )
 
     except asyncio.CancelledError:
-        requests.post(
-            url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
-        )
         gr.Info("Model load canceled.")
+    except aiohttp.ClientError as e:
+        raise gr.Error(f"Client error: {str(e)}")
     except Exception as e:
-        raise gr.Error(str(e))
+        raise gr.Error(f"Unexpected error: {str(e)}")
     finally:
         model_load_task = None
         model_load_state = False
@@ -511,11 +588,11 @@ def load_loras(loras, scalings):
     request = {"loras": load_list}
     try:
         requests.post(
-            url=conn_url + "/v1/lora/unload", headers={"X-admin-key": conn_key}
+            url=conn_url + "/v1/lora/unload", headers={"X-admin-key": args.admin_key}
         )
         r = requests.post(
             url=conn_url + "/v1/lora/load",
-            headers={"X-admin-key": conn_key},
+            headers={"X-admin-key": args.admin_key},
             json=request,
         )
         r.raise_for_status()
@@ -525,15 +602,16 @@ def load_loras(loras, scalings):
         raise gr.Error(e)
 
 
+# The unload_model function remains the same as in the previous artifact
 def unload_model():
     global model_load_task
     global model_load_state
-    if model_load_task or model_load_state:
+    if model_load_task and not model_load_task.done():
         model_load_task.cancel()
         model_load_state = False
     else:
         requests.post(
-            url=conn_url + "/v1/model/unload", headers={"X-admin-key": conn_key}
+            url=conn_url + "/v1/model/unload", headers={"X-admin-key": args.admin_key}
         )
         gr.Info("Model unloaded.")
     return get_current_model(), get_current_loras()
@@ -542,7 +620,7 @@ def unload_model():
 def unload_loras():
     try:
         r = requests.post(
-            url=conn_url + "/v1/lora/unload", headers={"X-admin-key": conn_key}
+            url=conn_url + "/v1/lora/unload", headers={"X-admin-key": args.admin_key}
         )
         r.raise_for_status()
         gr.Info("All loras unloaded.")
@@ -562,7 +640,7 @@ def load_template(prompt_template):
     try:
         r = requests.post(
             url=conn_url + "/v1/template/switch",
-            headers={"X-admin-key": conn_key},
+            headers={"X-admin-key": args.admin_key},
             json={"name": prompt_template},
         )
         r.raise_for_status()
@@ -575,7 +653,8 @@ def load_template(prompt_template):
 def unload_template():
     try:
         r = requests.post(
-            url=conn_url + "/v1/template/unload", headers={"X-admin-key": conn_key}
+            url=conn_url + "/v1/template/unload",
+            headers={"X-admin-key": args.admin_key},
         )
         r.raise_for_status()
         gr.Info("Prompt template unloaded.")
@@ -588,7 +667,7 @@ def load_override(sampler_override):
     try:
         r = requests.post(
             url=conn_url + "/v1/sampling/override/switch",
-            headers={"X-admin-key": conn_key},
+            headers={"X-admin-key": args.admin_key},
             json={"preset": sampler_override},
         )
         r.raise_for_status()
@@ -602,7 +681,7 @@ def unload_override():
     try:
         r = requests.post(
             url=conn_url + "/v1/sampling/override/unload",
-            headers={"X-admin-key": conn_key},
+            headers={"X-admin-key": args.admin_key},
         )
         r.raise_for_status()
         gr.Info("Sampler override unloaded.")
@@ -636,7 +715,7 @@ async def download(repo_id, revision, repo_type, folder_name, token, include, ex
             download_task = asyncio.create_task(
                 session.post(
                     url=conn_url + "/v1/download",
-                    headers={"X-admin-key": conn_key},
+                    headers={"X-admin-key": args.admin_key},
                     json=request,
                 )
             )
@@ -670,7 +749,7 @@ if args.admin_key or args.noauth:
         models, draft_models, loras, templates, overrides = connect(
             api_url=args.endpoint_url, admin_key=args.admin_key, silent=True
         )
-        conn_key = args.admin_key if args.admin_key else "noauth"
+        args.admin_key = args.admin_key if args.admin_key else "noauth"
         init_model_text = get_current_model().value
         init_lora_text = get_current_loras().value
         print(f"Connected models: {models}")
@@ -685,7 +764,7 @@ if args.admin_key or args.noauth:
 with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui:
     gr.Markdown(
         f"## TabbyAPI Exllamav2 Server - Connected to {conn_url}"
-        if conn_key
+        if args.admin_key
         else "## TabbyAPI Exllamav2 Server - Not connected"
     )
 
