@@ -483,7 +483,6 @@ async def load_model(
                                         f"Attempt {attempt_number}: Adjusting parameters: max_seq_len = {max_seq_len}, cache_size = {cache_size}"
                                     )
                                     return False, f"Error loading model: {error_msg}"
-                return False, "Unknown error: No status received from server"
         except asyncio.CancelledError:
             await session.post(
                 url=conn_url + "/v1/model/unload",
@@ -838,6 +837,117 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                                 value="❌ Unload Template", variant="stop"
                             )
 
+            with gr.Group():
+                with gr.Row(variant="compact", equal_height=True):
+                    with gr.Column(variant="compact"):
+                        max_seq_len = gr.Slider(
+                            value=8192,
+                            label="Max Sequence Length:",
+                            minimum=256,
+                            maximum=262144,
+                            interactive=True,
+                            step=256,
+                            info="Configured context length to load the model with. If left blank, automatically reads from model config.",
+                        )
+                        gpu_split_auto = gr.Checkbox(
+                            value=True,
+                            label="GPU Split Auto",
+                            interactive=True,
+                            info="Automatically determine how to split model layers between multiple GPUs.",
+                        )
+                        fasttensors = gr.Checkbox(
+                            value=True,
+                            label="Use Fasttensors",
+                            interactive=True,
+                            info="Enable to possibly increase model loading speeds on some systems.",
+                        )
+                        cache_mode = gr.Radio(
+                            value="Q4",
+                            label="Cache Mode:",
+                            choices=["Q4", "Q6", "Q8", "FP16"],
+                            interactive=True,
+                            info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
+                        )
+                        draft_cache_mode = gr.Radio(
+                            value="FP16",
+                            label="Draft Cache Mode:",
+                            choices=["Q4", "Q6", "Q8", "FP16"],
+                            interactive=True,
+                            info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
+                        )
+                    with gr.Column(variant="compact"):
+                        with gr.Row(variant="compact", equal_height=True):
+                            cache_size = gr.Slider(
+                                label="Cache Size:",
+                                value=lambda: None,
+                                maximum=262144,
+                                step=256,
+                                interactive=True,
+                                info="Size of the prompt cache to allocate (in number of tokens, multiple of 256). Defaults to max sequence length if left blank.",
+                            )
+                            chunk_size = gr.Slider(
+                                label="Chunk Size:",
+                                interactive=True,
+                                maximum=32768,
+                                minimum=1,
+                                info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
+                            )
+                        with gr.Row(variant="compact", equal_height=True):
+                            autosplit_reserve = gr.Slider(
+                                label="Auto-split Reserve:",
+                                minimum=0,
+                                maximum=1000,
+                                value=96,
+                                step=8,
+                                interactive=True,
+                                info="Amount of VRAM to keep reserved on each GPU when using auto split. In megabytes.",
+                            )
+                            gpu_split = gr.Textbox(
+                                label="GPU Split:",
+                                placeholder="20.6,24",
+                                visible=True,
+                                interactive=True,
+                                info="Amount of VRAM TabbyAPI will be allowed to use on each GPU. List of numbers separated by commas, in gigabytes.",
+                            )
+
+            with gr.Row(variant="compact", equal_height=True):
+                with gr.Column(variant="compact"):
+                    with gr.Column(variant="compact"):
+                        model_rope_scale = gr.Slider(
+                            value=lambda: None,
+                            label="Rope Scale:",
+                            minimum=1,
+                            interactive=True,
+                            info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
+                        )
+                        model_rope_alpha = gr.Slider(
+                            value=lambda: None,
+                            label="Rope Alpha:",
+                            minimum=1,
+                            interactive=True,
+                            info="Factor used for NTK-aware rope scaling. Leave blank for automatic calculation based on your configured max_seq_len and the model's base context length.",
+                        )
+                        num_experts_per_token = gr.Number(
+                            value=lambda: None,
+                            label="Number of experts per token (MoE only):",
+                            precision=0,
+                            interactive=True,
+                            info="Number of experts to use for simultaneous inference in mixture of experts. If left blank, automatically reads from model config.",
+                        )
+                with gr.Column(variant="compact"):
+                    draft_rope_scale = gr.Number(
+                        value=lambda: None,
+                        label="Draft Rope Scale:",
+                        interactive=True,
+                        info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
+                    )
+                    draft_rope_alpha = gr.Number(
+                        value=lambda: None,
+                        label="Draft Rope Alpha:",
+                        interactive=True,
+                        info="Factor used for NTK-aware rope scaling. Leave blank for automatic scaling calculated based on your configured max_seq_len and the model's base context length.",
+                    )
+
         with gr.Tab("Sampler Overrides"):
             with gr.Row(variant="compact"):
                 with gr.Row(variant="compact"):
@@ -944,222 +1054,111 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                         info="Provide HF access token to download from private/gated repositories.",
                     )
 
-        with gr.Group():
-            with gr.Row(variant="compact", equal_height=True):
-                with gr.Column(variant="compact"):
-                    max_seq_len = gr.Slider(
-                        value=8192,
-                        label="Max Sequence Length:",
-                        minimum=256,
-                        maximum=262144,
-                        interactive=True,
-                        step=256,
-                        info="Configured context length to load the model with. If left blank, automatically reads from model config.",
-                    )
-                    gpu_split_auto = gr.Checkbox(
-                        value=True,
-                        label="GPU Split Auto",
-                        interactive=True,
-                        info="Automatically determine how to split model layers between multiple GPUs.",
-                    )
-                    fasttensors = gr.Checkbox(
-                        value=True,
-                        label="Use Fasttensors",
-                        interactive=True,
-                        info="Enable to possibly increase model loading speeds on some systems.",
-                    )
-                    cache_mode = gr.Radio(
-                        value="Q4",
-                        label="Cache Mode:",
-                        choices=["Q4", "Q6", "Q8", "FP16"],
-                        interactive=True,
-                        info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
-                    )
-                    draft_cache_mode = gr.Radio(
-                        value="FP16",
-                        label="Draft Cache Mode:",
-                        choices=["Q4", "Q6", "Q8", "FP16"],
-                        interactive=True,
-                        info="Q4/Q6/Q8 cache sacrifice some precision to save VRAM compared to full FP16 precision.",
-                    )
-                with gr.Column(variant="compact"):
-                    with gr.Row(variant="compact", equal_height=True):
-                        cache_size = gr.Slider(
-                            label="Cache Size:",
-                            value=lambda: None,
-                            maximum=262144,
-                            step=256,
-                            interactive=True,
-                            info="Size of the prompt cache to allocate (in number of tokens, multiple of 256). Defaults to max sequence length if left blank.",
-                        )
-                        chunk_size = gr.Slider(
-                            value=lambda: None,
-                            label="Chunk Size:",
-                            interactive=True,
-                            maximum=32768,
-                            minimum=1,
-                            info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
-                        )
-                    with gr.Row(variant="compact", equal_height=True):
-                        autosplit_reserve = gr.Slider(
-                            label="Auto-split Reserve:",
-                            minimum=0,
-                            maximum=1000,
-                            value=96,
-                            step=8,
-                            interactive=True,
-                            info="Amount of VRAM to keep reserved on each GPU when using auto split. In megabytes.",
-                        )
-                        gpu_split = gr.Textbox(
-                            label="GPU Split:",
-                            placeholder="20.6,24",
-                            visible=True,
-                            interactive=True,
-                            info="Amount of VRAM TabbyAPI will be allowed to use on each GPU. List of numbers separated by commas, in gigabytes.",
-                        )
+        # Model tab
+        load_preset_btn.click(
+            fn=read_preset,
+            inputs=load_preset,
+            outputs=[
+                models_drop,
+                max_seq_len,
+                override_base_seq_len,
+                cache_size,
+                gpu_split_auto,
+                gpu_split,
+                model_rope_scale,
+                model_rope_alpha,
+                cache_mode,
+                prompt_template,
+                num_experts_per_token,
+                draft_models_drop,
+                draft_rope_scale,
+                draft_rope_alpha,
+                draft_cache_mode,
+                fasttensors,
+                autosplit_reserve,
+                chunk_size,
+            ],
+        )
+        del_preset_btn.click(fn=del_preset, inputs=load_preset, outputs=load_preset)
+        save_preset_btn.click(
+            fn=write_preset,
+            inputs=[
+                save_preset,
+                models_drop,
+                max_seq_len,
+                override_base_seq_len,
+                cache_size,
+                gpu_split_auto,
+                gpu_split,
+                model_rope_scale,
+                model_rope_alpha,
+                cache_mode,
+                prompt_template,
+                num_experts_per_token,
+                draft_models_drop,
+                draft_rope_scale,
+                draft_rope_alpha,
+                draft_cache_mode,
+                fasttensors,
+                autosplit_reserve,
+                chunk_size,
+            ],
+            outputs=[save_preset, load_preset],
+        )
+        refresh_preset_btn.click(fn=get_preset_list, outputs=load_preset)
 
-        with gr.Row(variant="compact", equal_height=True):
-            with gr.Column(variant="compact"):
-                with gr.Column(variant="compact"):
-                    model_rope_scale = gr.Slider(
-                        value=lambda: None,
-                        label="Rope Scale:",
-                        minimum=1,
-                        interactive=True,
-                        info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
-                    )
-                    model_rope_alpha = gr.Slider(
-                        value=lambda: None,
-                        label="Rope Alpha:",
-                        minimum=1,
-                        interactive=True,
-                        info="Factor used for NTK-aware rope scaling. Leave blank for automatic calculation based on your configured max_seq_len and the model's base context length.",
-                    )
-                    num_experts_per_token = gr.Number(
-                        value=lambda: None,
-                        label="Number of experts per token (MoE only):",
-                        precision=0,
-                        interactive=True,
-                        info="Number of experts to use for simultaneous inference in mixture of experts. If left blank, automatically reads from model config.",
-                    )
-            with gr.Column(variant="compact"):
-                draft_rope_scale = gr.Number(
-                    value=lambda: None,
-                    label="Draft Rope Scale:",
-                    interactive=True,
-                    info="AKA compress_pos_emb or linear rope, used for models trained with modified positional embeddings, such as SuperHoT. If left blank, automatically reads from model config.",
-                )
-                draft_rope_alpha = gr.Number(
-                    value=lambda: None,
-                    label="Draft Rope Alpha:",
-                    interactive=True,
-                    info="Factor used for NTK-aware rope scaling. Leave blank for automatic scaling calculated based on your configured max_seq_len and the model's base context length.",
-                )
-    # Model tab
-    load_preset_btn.click(
-        fn=read_preset,
-        inputs=load_preset,
-        outputs=[
-            models_drop,
-            max_seq_len,
-            override_base_seq_len,
-            cache_size,
-            gpu_split_auto,
-            gpu_split,
-            model_rope_scale,
-            model_rope_alpha,
-            cache_mode,
-            prompt_template,
-            num_experts_per_token,
-            draft_models_drop,
-            draft_rope_scale,
-            draft_rope_alpha,
-            draft_cache_mode,
-            fasttensors,
-            autosplit_reserve,
-            chunk_size,
-        ],
-    )
-    del_preset_btn.click(fn=del_preset, inputs=load_preset, outputs=load_preset)
-    save_preset_btn.click(
-        fn=write_preset,
-        inputs=[
-            save_preset,
-            models_drop,
-            max_seq_len,
-            override_base_seq_len,
-            cache_size,
-            gpu_split_auto,
-            gpu_split,
-            model_rope_scale,
-            model_rope_alpha,
-            cache_mode,
-            prompt_template,
-            num_experts_per_token,
-            draft_models_drop,
-            draft_rope_scale,
-            draft_rope_alpha,
-            draft_cache_mode,
-            fasttensors,
-            autosplit_reserve,
-            chunk_size,
-        ],
-        outputs=[save_preset, load_preset],
-    )
-    refresh_preset_btn.click(fn=get_preset_list, outputs=load_preset)
+        gpu_split_auto.change(
+            fn=toggle_gpu_split,
+            inputs=gpu_split_auto,
+            outputs=[gpu_split, autosplit_reserve],
+        )
+        unload_model_btn.click(fn=unload_model, outputs=[current_model, current_loras])
+        load_model_btn.click(
+            fn=load_model,
+            inputs=[
+                models_drop,
+                max_seq_len,
+                override_base_seq_len,
+                cache_size,
+                gpu_split_auto,
+                gpu_split,
+                model_rope_scale,
+                model_rope_alpha,
+                cache_mode,
+                prompt_template,
+                num_experts_per_token,
+                draft_models_drop,
+                draft_rope_scale,
+                draft_rope_alpha,
+                draft_cache_mode,
+                fasttensors,
+                autosplit_reserve,
+                chunk_size,
+            ],
+            outputs=[current_model, current_loras],
+            concurrency_limit=1,
+        )
+        load_template_btn.click(fn=load_template, inputs=prompt_template)
+        unload_template_btn.click(fn=unload_template)
+        load_override_btn.click(fn=load_override, inputs=sampler_override)
+        unload_override_btn.click(fn=unload_override)
 
-    gpu_split_auto.change(
-        fn=toggle_gpu_split,
-        inputs=gpu_split_auto,
-        outputs=[gpu_split, autosplit_reserve],
-    )
-    unload_model_btn.click(fn=unload_model, outputs=[current_model, current_loras])
-    load_model_btn.click(
-        fn=load_model,
-        inputs=[
-            models_drop,
-            max_seq_len,
-            override_base_seq_len,
-            cache_size,
-            gpu_split_auto,
-            gpu_split,
-            model_rope_scale,
-            model_rope_alpha,
-            cache_mode,
-            prompt_template,
-            num_experts_per_token,
-            draft_models_drop,
-            draft_rope_scale,
-            draft_rope_alpha,
-            draft_cache_mode,
-            fasttensors,
-            autosplit_reserve,
-            chunk_size,
-        ],
-        outputs=[current_model, current_loras],
-        concurrency_limit=1,
-    )
-    load_template_btn.click(fn=load_template, inputs=prompt_template)
-    unload_template_btn.click(fn=unload_template)
-    load_override_btn.click(fn=load_override, inputs=sampler_override)
-    unload_override_btn.click(fn=unload_override)
+        # Loras tab
+        loras_drop.change(update_loras_table, inputs=loras_drop, outputs=loras_table)
+        unload_loras_btn.click(fn=unload_loras, outputs=[current_model, current_loras])
+        load_loras_btn.click(
+            fn=load_loras,
+            inputs=[loras_drop, loras_table],
+            outputs=[current_model, current_loras],
+        )
 
-    # Loras tab
-    loras_drop.change(update_loras_table, inputs=loras_drop, outputs=loras_table)
-    unload_loras_btn.click(fn=unload_loras, outputs=[current_model, current_loras])
-    load_loras_btn.click(
-        fn=load_loras,
-        inputs=[loras_drop, loras_table],
-        outputs=[current_model, current_loras],
-    )
-
-    # HF Downloader tab
-    download_btn.click(
-        fn=download,
-        inputs=[repo_id, revision, repo_type, folder_name, token, include, exclude],
-        concurrency_limit=1,
-    )
-    cancel_download_btn.click(fn=cancel_download)
+        # HF Downloader tab
+        download_btn.click(
+            fn=download,
+            inputs=[repo_id, revision, repo_type, folder_name, token, include, exclude],
+            concurrency_limit=1,
+        )
+        cancel_download_btn.click(fn=cancel_download)
 
 webui.launch(
     inbrowser=args.autolaunch,
