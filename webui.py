@@ -42,12 +42,6 @@ parser.add_argument(
     help="Specify TabbyAPI endpoint that has no authorization",
 )
 parser.add_argument(
-    "-s",
-    "--share",
-    action="store_true",
-    help="Share WebUI link remotely via Gradio's built in tunnel",
-)
-parser.add_argument(
     "-a",
     "--autolaunch",
     action="store_true",
@@ -388,14 +382,11 @@ async def load_model(
     global model_load_state
     global conn_url
 
-    await test_connection()  # TODO: removeme when debugging done
+    # await test_connection()  # can be used for debugging done
 
     model_load_state = True
     if not model_name:
         raise gr.Error("Specify a model to load!")
-
-    gr.Info(f"Using connection URL: {conn_url}")
-    gr.Info(f"API Key (first 2 chars): {args.admin_key[:2]}...")
 
     async def attempt_load(session, seq_len, c_size, attempt_number):
         nonlocal max_seq_len, cache_size
@@ -433,10 +424,6 @@ async def load_model(
         }
         request = {k: v for k, v in request.items() if v is not None}
 
-        gr.Info(
-            f"Attempt {attempt_number}: Sending request: {json.dumps(request, indent=2)}"
-        )
-
         try:
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
             async with session.post(
@@ -459,7 +446,6 @@ async def load_model(
                     chunk_str = chunk.decode("utf-8")
                     if chunk_str.startswith("data: "):
                         data = json.loads(chunk_str.lstrip("data: "))
-                        gr.Info(f"Received data: {data}")
                         if data.get("status") == "finished":
                             gr.Info(
                                 f"Attempt {attempt_number}: Model loaded successfully"
@@ -531,8 +517,6 @@ async def load_model(
                     gr.Info(f"Retrying with new parameters (attempt {retry_count}/3)")
 
             if success:
-                # Verify model load
-                gr.Info("Verifying model load...")
                 verify_response = await session.get(
                     url=conn_url + "/v1/model", headers={"X-api-key": args.admin_key}
                 )
@@ -612,6 +596,17 @@ def unload_model():
         requests.post(
             url=conn_url + "/v1/model/unload", headers={"X-admin-key": args.admin_key}
         )
+
+        # TODO: maybe add something gross like this in the future that restarts tabbyapi after an unload to clear the VRAM properly
+        # # Run `docker restart tabbyapi` to clear the cache
+        # commands = [
+        #     "docker restart tabbyapi",
+        # ]
+
+        # # execute the commands
+        # for command in commands:
+        #     os.system(command)
+
         gr.Info("Model unloaded.")
     return get_current_model(), get_current_loras()
 
@@ -888,14 +883,15 @@ with gr.Blocks(title="TabbyAPI Gradio Loader", analytics_enabled=False) as webui
                             chunk_size = gr.Slider(
                                 label="Chunk Size:",
                                 interactive=True,
-                                maximum=32768,
+                                value=2048,
+                                maximum=8192,
                                 minimum=1,
                                 info="The number of prompt tokens to ingest at a time. A lower value reduces VRAM usage at the cost of ingestion speed.",
                             )
                         with gr.Row(variant="compact", equal_height=True):
                             autosplit_reserve = gr.Slider(
                                 label="Auto-split Reserve:",
-                                minimum=0,
+                                minimum=64,
                                 maximum=1000,
                                 value=96,
                                 step=8,
